@@ -1,0 +1,121 @@
+<!doctype html>
+<html>
+<head>
+<title>NVDA Profile Viewer</title>
+</head>
+<body>
+
+<section id="chooseFile">
+	<p>Generate a profile with:</p>
+	<code><pre>py-spy record -f raw -t --full-filenames -o yourFileName -p yourNvdaPid</pre></code>
+	<label>
+		Choose a file:
+		<input id="file" type="file">
+	</label>
+	<button id="demo">Demo profile</button>
+</section>
+<section id="profile" hidden>
+	<section><label>
+		Thread:
+		<select id="thread"></select>
+	</label></section>
+	<section>
+		<table>
+			<thead><tr><th>Function</th><th>Stack</th><th>Count</th></tr></thead>
+			<tbody id="samples"></tbody>
+		</table>
+	</section>
+</section>
+
+<script>
+document.getElementById("file").addEventListener("change", changeEvt => {
+	const file = changeEvt.target.files[0];
+	if (!file) {
+		return;
+	}
+	const reader = new FileReader();
+	reader.onload = loadEvt => {
+		const data = loadEvt.target.result;
+		parseProfile(data);
+	};
+	reader.readAsText(file);
+});
+
+document.getElementById("demo").addEventListener("click", async () => {
+	const res = await fetch("demo.txt");
+	parseProfile(await res.text());
+});
+
+const threadSel = document.getElementById("thread");
+const samplesTable = document.getElementById("samples");
+const threadSamples = new Map();
+let totalCount = 0;
+
+function parseProfile(data) {
+	lines = data.split(/\r?\n/);
+	document.getElementById("chooseFile").hidden = true;
+	document.getElementById("profile").hidden = false;
+	for (const line of lines) {
+		const m = line.match(
+			/thread \((?<threadId>\d+)\): (?<threadName>.*?);(?<stack>.*?) (?<count>\d+)/
+		);
+		if (!m) {
+			continue;
+		}
+		const thread = `${m.groups.threadId} ${m.groups.threadName}`;
+		// Add this sample to the samples for its thread.
+		let samples = threadSamples.get(thread);
+		if (!samples) {
+			// This is the first time we've seen this thread.
+			samples = [];
+			threadSamples.set(thread, samples);
+		}
+		const count = Number(m.groups.count);
+		samples.push({
+			// We invert the stack so the deepest frame is at the top.
+			stack: m.groups.stack.split(";").reverse(),
+			count
+		});
+		totalCount += count;
+	}
+	for (const [thread, samples] of threadSamples) {
+		threadSel.add(new Option(thread));
+		// Sort the samples for each thread from highest to lowest count.
+		samples.sort((a, b) => b.count - a.count);
+	}
+	threadSel.options[0].selected = true;
+	updateThread();
+}
+
+function updateThread() {
+	const thread = threadSel.selectedOptions[0].label;
+	const samples = threadSamples.get(thread);
+	samplesTable.replaceChildren();
+	for (const sample of samples) {
+		const row = samplesTable.insertRow();
+		let cell = row.insertCell();
+		cell.textContent = sample.stack[0];
+		cell = row.insertCell();
+		const details = document.createElement("details");
+		cell.append(details);
+		const summary = document.createElement("summary");
+		summary.textContent = "Stack";
+		details.append(summary);
+		const ol = document.createElement("ol");
+		details.append(ol);
+		for (const frame of sample.stack) {
+			const li = document.createElement("li");
+			li.textContent = frame;
+			ol.append(li);
+		}
+		cell = row.insertCell();
+		const percent = sample.count / totalCount * 100;
+		cell.textContent = `${sample.count} (${percent.toFixed(2)}%)`;
+	}
+}
+
+threadSel.addEventListener("change", updateThread);
+</script>
+
+</body>
+</html>
