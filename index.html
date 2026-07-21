@@ -2,6 +2,11 @@
 <html>
 <head>
 <title>NVDA Profile Viewer</title>
+<style>
+::details-content {
+	padding-left: 24px;
+}
+</style>
 </head>
 <body>
 
@@ -15,16 +20,14 @@
 	<button id="demo">Demo profile</button>
 </section>
 <section id="profile" hidden>
-	<section><label>
-		Thread:
-		<select id="thread"></select>
-	</label></section>
 	<section>
-		<table>
-			<thead><tr><th>Function</th><th>Stack</th><th>Count</th></tr></thead>
-			<tbody id="samples"></tbody>
-		</table>
+		<label>
+			Thread:
+			<select id="thread"></select>
+		</label>
+		<label><input id="invert" type="checkbox" checked> Invert stack</label>
 	</section>
+	<div id="tree" role="tree"></div>
 </section>
 
 <script>
@@ -47,7 +50,6 @@ document.getElementById("demo").addEventListener("click", async () => {
 });
 
 const threadSel = document.getElementById("thread");
-const samplesTable = document.getElementById("samples");
 const threadSamples = new Map();
 let totalCount = 0;
 
@@ -72,8 +74,7 @@ function parseProfile(data) {
 		}
 		const count = Number(m.groups.count);
 		samples.push({
-			// We invert the stack so the deepest frame is at the top.
-			stack: m.groups.stack.split(";").reverse(),
+			stack: m.groups.stack.split(";"),
 			count
 		});
 		totalCount += count;
@@ -84,37 +85,153 @@ function parseProfile(data) {
 		samples.sort((a, b) => b.count - a.count);
 	}
 	threadSel.options[0].selected = true;
-	updateThread();
+	updateTree();
 }
 
-function updateThread() {
+function toPercent(count) {
+	const percent = count / totalCount * 100;
+	return `${percent.toFixed(2)}%`;
+}
+
+function updateNode(node) {
+	node.firstElementChild.textContent =
+		`${node.frame}, total ${node.totalCount} (${toPercent(node.totalCount)}), self ${node.selfCount} (${toPercent(node.selfCount)})`;
+}
+
+const tree = document.getElementById("tree");
+const invert = document.getElementById("invert");
+
+function updateTree(restoreSelected=false) {
 	const thread = threadSel.selectedOptions[0].label;
 	const samples = threadSamples.get(thread);
-	samplesTable.replaceChildren();
+	const prevSel = restoreSelected ?
+		tree.querySelector('details [tabindex="0"]')?.parentElement : null;
+	tree.replaceChildren();
+	// Maps a stack path to a node. This is how we aggregate frames across samples.
+	const nodes = new Map();
+	const frameIdsToNodes = new Map();
+	let sampleNum = 0;
 	for (const sample of samples) {
-		const row = samplesTable.insertRow();
-		let cell = row.insertCell();
-		cell.textContent = sample.stack[0];
-		cell = row.insertCell();
-		const details = document.createElement("details");
-		cell.append(details);
-		const summary = document.createElement("summary");
-		summary.textContent = "Stack";
-		details.append(summary);
-		const ol = document.createElement("ol");
-		details.append(ol);
-		for (const frame of sample.stack) {
-			const li = document.createElement("li");
-			li.textContent = frame;
-			ol.append(li);
+		let parent = tree;
+		let path = "";
+		let level = 1;
+		const stack = invert.checked ? sample.stack.toReversed() : sample.stack;
+		for (const frame of stack) {
+			if (path) {
+				path += ";";
+			}
+			path += frame;
+			let node = nodes.get(path);
+			const frameNum = invert.checked ? stack.length - level + 1 : level;
+			const frameId = `${sampleNum}.${frameNum}`;
+			if (!node) {
+				// This stack path doesn't have a node in the tree yet.
+				node = document.createElement("details");
+				nodes.set(path, node);
+				parent.append(node);
+				node.role = "generic";
+				node.totalCount = node.selfCount = 0;
+				node.frame = frame;
+				node.frameId = frameId;
+				const summary = document.createElement("summary");
+				node.append(summary);
+				summary.role = "treeitem";
+				summary.ariaLevel = level;
+				summary.tabIndex = -1;
+			}
+			node.totalCount += sample.count;
+			if (invert.checked ? level == 1 : level == stack.length) {
+				node.selfCount += sample.count;
+			}
+			updateNode(node);
+			if (prevSel) {
+				// Frames in multiple samples might be aggregated into a single tree node.
+				// However, this aggregation changes when the stack is inverted vs when it
+				// isn't. Therefore, keep track of all the sample frames with which this node
+				// is associated.
+				frameIdsToNodes.set(frameId, node);
+			}
+			parent = node;
+			++level;
 		}
-		cell = row.insertCell();
-		const percent = sample.count / totalCount * 100;
-		cell.textContent = `${sample.count} (${percent.toFixed(2)}%)`;
+		++sampleNum;
+	}
+	if (prevSel) {
+		// Restore to the same frame when toggling invert.
+		const sel = frameIdsToNodes.get(prevSel.frameId).firstElementChild;
+		// Open the ancestor branches so this item can be selected.
+		for (let parent = sel.parentElement.parentElement; parent != tree;
+			parent = parent.parentElement
+		) {
+			parent.open = true;
+		}
+		sel.tabIndex = 0;
+	} else {
+		document.querySelector("[role=treeitem]").tabIndex = 0;
 	}
 }
 
-threadSel.addEventListener("change", updateThread);
+const walker = document.createTreeWalker(
+	tree, NodeFilter.SHOW_ELEMENT, node => {
+		if (node.tagName == "DETAILS" && node.parentElement != tree &&
+			!node.parentElement.open
+		) {
+			// This is a closed branch. Don't descend inside it.
+			return NodeFilter.FILTER_REJECT;
+		}
+		if (node.role == "treeitem") {
+			return NodeFilter.FILTER_ACCEPT;
+		}
+		return NodeFilter.FILTER_SKIP;
+	}
+);
+
+function selectItem(item) {
+	if (!item) {
+		return;
+	}
+	document.activeElement.tabIndex = -1;
+	item.tabIndex = 0;
+	item.focus();
+}
+
+tree.addEventListener("keydown", evt => {
+	walker.currentNode = document.activeElement;
+	switch (evt.key) {
+		case "ArrowDown":
+			selectItem(walker.nextSibling());
+			break;
+		case "ArrowUp":
+			selectItem(walker.previousSibling());
+			break;
+		case "ArrowRight":
+			if (document.activeElement.parentElement.open) {
+				selectItem(walker.nextSibling());
+			} else {
+				document.activeElement.parentElement.open = true;
+			}
+			break;
+		case "ArrowLeft":
+			if (document.activeElement.parentElement.open) {
+				document.activeElement.parentElement.open = false;
+			} else {
+				selectItem(
+					document.activeElement.parentElement.parentElement.firstElementChild
+				);
+			}
+			break;
+		case "Home":
+			selectItem(tree.querySelector("[role=treeitem]"));
+			break;
+		case "End":
+			while (walker.nextSibling()) {}
+			selectItem(walker.currentNode);
+			break;
+	}
+});
+
+threadSel.addEventListener("change", evt => updateTree());
+invert.addEventListener("click", evt => updateTree(true));
 </script>
 
 </body>
