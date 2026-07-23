@@ -20,6 +20,10 @@
 [role=treeitem][aria-expanded=true]::before {
 	content: "-" / "";
 }
+/* Hide items excluded by the filter. */
+.excluded {
+	display: none;
+}
 </style>
 </head>
 <body>
@@ -43,6 +47,10 @@
 		<label>
 			<input id="invert" type="checkbox" checked accesskey="i">
 			Invert stack
+		</label>
+		<label>
+			Filter:
+			<input id="filter" type="text" accesskey="f">
 		</label>
 	</section>
 	<div id="tree" role="tree"></div>
@@ -112,6 +120,7 @@ function toPercent(count) {
 
 const tree = document.getElementById("tree");
 const invert = document.getElementById("invert");
+const filter = document.getElementById("filter");
 
 function addTreeItem(parent, item) {
 	let container;
@@ -135,11 +144,14 @@ function sortContainer(container) {
 	container.replaceChildren(...items);
 }
 
+function getSelectedItem() {
+	return tree.querySelector('[role=treeitem][tabindex="0"]');
+}
+
 function updateTree(restoreSelected=false) {
 	const thread = threadSel.selectedOptions[0].label;
 	const samples = threadSamples.get(thread);
-	const prevSel = restoreSelected ?
-		tree.querySelector('[role=treeitem][tabindex="0"]') : null;
+	const prevSel = restoreSelected ? getSelectedItem() : null;
 	const frag = document.createDocumentFragment();
 	// Maps a stack path to a node. This is how we aggregate frames across samples.
 	const nodes = new Map();
@@ -197,6 +209,7 @@ function updateTree(restoreSelected=false) {
 		sortContainer(container);
 	}
 	tree.replaceChildren(frag);
+	filter.value = "";
 	if (prevSel) {
 		// Restore to the same frame when toggling invert.
 		const sel = frameIdsToNodes.get(prevSel.frameId);
@@ -208,7 +221,7 @@ function updateTree(restoreSelected=false) {
 		}
 		sel.tabIndex = 0;
 	} else {
-		document.querySelector("[role=treeitem]").tabIndex = 0;
+		tree.querySelector("[role=treeitem]").tabIndex = 0;
 	}
 }
 
@@ -216,6 +229,10 @@ const walker = document.createTreeWalker(
 	tree, NodeFilter.SHOW_ELEMENT, node => {
 		if (node.role == "group" && node.parentElement.ariaExpanded == "false") {
 			// This is a closed branch. Don't descend inside it.
+			return NodeFilter.FILTER_REJECT;
+		}
+		if (node.classList.contains("excluded")) {
+			// This branch is excluded by the filter.
 			return NodeFilter.FILTER_REJECT;
 		}
 		if (node.role == "treeitem") {
@@ -269,13 +286,52 @@ tree.addEventListener("keydown", evt => {
 });
 
 function focusTree() {
-	document.querySelector('[role=treeitem][tabindex="0"]').focus();
+	getSelectedItem().focus();
 }
 
 threadSel.addEventListener("change", evt => updateTree());
 invert.addEventListener("click", evt => {
 	updateTree(true);
 	focusTree();
+});
+
+// Recursively hides branches in the tree if they don't contain the filter text.
+// Returns true if the item contains the filter text.
+function filterSubtree(root, filterText) {
+	if (root.frame.includes(filterText)) {
+		// Include this item and all its descendants.
+		return true;
+	}
+	const container = root.children[1];
+	if (container) {
+		for (const child of container.children) {
+			if (filterSubtree(child, filterText)) {
+				// A descendant matches. Include all its ancestors so it is reachable.
+				return true;
+			}
+		}
+	}
+	root.classList.add("excluded");
+	return false;
+}
+
+filter.addEventListener("change", evt => {
+	const prevSel = getSelectedItem();
+	// Unfilter the tree.
+	for (const item of tree.querySelectorAll(".excluded")) {
+		item.classList.remove("excluded");
+	}
+	const filterText = filter.value.toLowerCase();
+	if (filterText) {
+		for (const item of tree.children) {
+			filterSubtree(item, filterText);
+		}
+	}
+	if (prevSel.classList.contains("excluded") || prevSel.closest(".excluded")) {
+		// The previously selected item is now hidden. Select the first item.
+		prevSel.tabIndex = -1;
+		document.querySelector("#tree > [role=treeitem]:not(.excluded)").tabIndex = 0;
+	}
 });
 </script>
 
