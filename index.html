@@ -109,8 +109,8 @@ const invert = document.getElementById("invert");
 
 function addTreeItem(parent, item) {
 	let container;
-	if (parent == tree) {
-		container = tree;
+	if (!parent.role) {
+		container = parent; // Root
 	} else if (parent.children[1]) {
 		container = parent.children[1];
 	} else {
@@ -122,18 +122,25 @@ function addTreeItem(parent, item) {
 	container.append(item);
 }
 
+// Sort sibling tree items from highest to lowest total count.
+function sortContainer(container) {
+	const items = Array.from(container.children);
+	items.sort((a, b) => b.totalCount - a.totalCount);
+	container.replaceChildren(...items);
+}
+
 function updateTree(restoreSelected=false) {
 	const thread = threadSel.selectedOptions[0].label;
 	const samples = threadSamples.get(thread);
 	const prevSel = restoreSelected ?
 		tree.querySelector('[role=treeitem][tabindex="0"]') : null;
-	tree.replaceChildren();
+	const frag = document.createDocumentFragment();
 	// Maps a stack path to a node. This is how we aggregate frames across samples.
 	const nodes = new Map();
 	const frameIdsToNodes = new Map();
 	let sampleNum = 0;
 	for (const sample of samples) {
-		let parent = tree;
+		let parent = frag;
 		let path = "";
 		let level = 1;
 		const stack = invert.checked ? sample.stack.toReversed() : sample.stack;
@@ -179,12 +186,11 @@ function updateTree(restoreSelected=false) {
 		node.firstElementChild.textContent =
 			`${node.frame}, total ${node.totalCount} (${toPercent(node.totalCount)}), self ${node.selfCount} (${toPercent(node.selfCount)})`;
 	}
-	// Sort each branch from highest to lowest total count.
-	for (const container of document.querySelectorAll("#tree, [role=group]")) {
-		const items = Array.from(container.children);
-		items.sort((a, b) => b.totalCount - a.totalCount);
-		container.replaceChildren(...items);
+	sortContainer(frag);
+	for (const container of frag.querySelectorAll("[role=group]")) {
+		sortContainer(container);
 	}
+	tree.replaceChildren(frag);
 	if (prevSel) {
 		// Restore to the same frame when toggling invert.
 		const sel = frameIdsToNodes.get(prevSel.frameId);
