@@ -94,8 +94,6 @@ function parseProfile(data) {
 	}
 	for (const [thread, samples] of threadSamples) {
 		threadSel.add(new Option(thread));
-		// Sort the samples for each thread from highest to lowest count.
-		samples.sort((a, b) => b.count - a.count);
 	}
 	threadSel.options[0].selected = true;
 	updateTree();
@@ -180,6 +178,12 @@ function updateTree(restoreSelected=false) {
 	for (const [path, node] of nodes) {
 		node.firstElementChild.textContent =
 			`${node.frame}, total ${node.totalCount} (${toPercent(node.totalCount)}), self ${node.selfCount} (${toPercent(node.selfCount)})`;
+	}
+	// Sort each branch from highest to lowest total count.
+	for (const container of document.querySelectorAll("#tree, [role=group]")) {
+		const items = Array.from(container.children);
+		items.sort((a, b) => b.totalCount - a.totalCount);
+		container.replaceChildren(...items);
 	}
 	if (prevSel) {
 		// Restore to the same frame when toggling invert.
