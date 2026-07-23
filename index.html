@@ -102,11 +102,6 @@ function toPercent(count) {
 	return `${percent.toFixed(2)}%`;
 }
 
-function updateNode(node) {
-	node.firstElementChild.textContent =
-		`${node.frame}, total ${node.totalCount} (${toPercent(node.totalCount)}), self ${node.selfCount} (${toPercent(node.selfCount)})`;
-}
-
 const tree = document.getElementById("tree");
 const invert = document.getElementById("invert");
 
@@ -165,7 +160,6 @@ function updateTree(restoreSelected=false) {
 			if (invert.checked ? level == 1 : level == stack.length) {
 				node.selfCount += sample.count;
 			}
-			updateNode(node);
 			if (prevSel) {
 				// Frames in multiple samples might be aggregated into a single tree node.
 				// However, this aggregation changes when the stack is inverted vs when it
@@ -177,6 +171,11 @@ function updateTree(restoreSelected=false) {
 			++level;
 		}
 		++sampleNum;
+	}
+	// Now that we have the aggregated counts, we can label the nodes.
+	for (const [path, node] of nodes) {
+		node.firstElementChild.textContent =
+			`${node.frame}, total ${node.totalCount} (${toPercent(node.totalCount)}), self ${node.selfCount} (${toPercent(node.selfCount)})`;
 	}
 	if (prevSel) {
 		// Restore to the same frame when toggling invert.
