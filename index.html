@@ -3,12 +3,16 @@
 <head>
 <title>NVDA Profile Viewer</title>
 <style>
+/* Hide the descendants of collapsed branches. */
 [role=treeitem][aria-expanded=false] > [role=group] {
 	display: none;
 }
+/* Indent each level. */
 #tree [role=group] {
 	padding-left: 24px;
 }
+/* Visual indicators for collapsed/expanded. Hidden for accessibility using
+ * empty CSS alt text because aria-expanded provides semantic indication. */
 [role=treeitem][aria-expanded=false]::before {
 	content: "+" / "";
 }
