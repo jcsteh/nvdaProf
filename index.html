@@ -99,6 +99,7 @@ function parseProfile(data) {
 	}
 	threadSel.options[0].selected = true;
 	updateTree();
+	focusTree();
 }
 
 function toPercent(count) {
@@ -264,8 +265,15 @@ tree.addEventListener("keydown", evt => {
 	}
 });
 
+function focusTree() {
+	document.querySelector('[role=treeitem][tabindex="0"]').focus();
+}
+
 threadSel.addEventListener("change", evt => updateTree());
-invert.addEventListener("click", evt => updateTree(true));
+invert.addEventListener("click", evt => {
+	updateTree(true);
+	focusTree();
+});
 </script>
 
 </body>
