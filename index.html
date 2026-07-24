@@ -305,7 +305,7 @@ invert.addEventListener("click", evt => {
 // Recursively hides branches in the tree if they don't contain the filter text.
 // Returns true if the item contains the filter text.
 function filterSubtree(root, filterText) {
-	if (root.frame.includes(filterText)) {
+	if (root.frame.toLowerCase().includes(filterText)) {
 		// Include this item and all its descendants.
 		return true;
 	}
