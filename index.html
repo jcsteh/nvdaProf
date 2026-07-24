@@ -24,6 +24,15 @@
 .excluded {
 	display: none;
 }
+/* We manage focus using aria-activedescendant. Hide the focus ring around the
+ * tree itself and show a focus ring for the active item.
+ */
+#tree:focus-visible {
+	outline: none;
+}
+.selected {
+	outline: 2px solid Highlight;
+}
 </style>
 </head>
 <body>
@@ -53,7 +62,7 @@
 			<input id="filter" type="text" accesskey="f">
 		</label>
 	</section>
-	<div id="tree" role="tree"></div>
+	<div id="tree" tabindex="0" role="tree"></div>
 </section>
 
 <script>
@@ -110,7 +119,7 @@ function parseProfile(data) {
 	}
 	threadSel.options[0].selected = true;
 	updateTree();
-	focusTree();
+	tree.focus();
 }
 
 function toPercent(count) {
@@ -145,7 +154,7 @@ function sortContainer(container) {
 }
 
 function getSelectedItem() {
-	return tree.querySelector('[role=treeitem][tabindex="0"]');
+	return tree.ariaActiveDescendantElement;
 }
 
 function updateTree(restoreSelected=false) {
@@ -176,7 +185,6 @@ function updateTree(restoreSelected=false) {
 				nodes.set(path, node);
 				addTreeItem(parent, node);
 				node.role = "treeitem";
-				node.tabIndex = -1;
 				node.totalCount = node.selfCount = 0;
 				node.frame = frame;
 				node.frameId = frameId;
@@ -219,9 +227,9 @@ function updateTree(restoreSelected=false) {
 		) {
 			parent.ariaExpanded = "true";
 		}
-		sel.tabIndex = 0;
+		selectItem(sel);
 	} else {
-		tree.querySelector("[role=treeitem]").tabIndex = 0;
+		selectItem(tree.querySelector("[role=treeitem]"));
 	}
 }
 
@@ -246,13 +254,16 @@ function selectItem(item) {
 	if (!item) {
 		return;
 	}
-	document.activeElement.tabIndex = -1;
-	item.tabIndex = 0;
-	item.focus();
+	const orig = tree.ariaActiveDescendantElement;
+	if (orig) {
+		orig.classList.remove("selected");
+	}
+	tree.ariaActiveDescendantElement = item;
+	item.classList.add("selected");
 }
 
 tree.addEventListener("keydown", evt => {
-	walker.currentNode = document.activeElement;
+	walker.currentNode = getSelectedItem();
 	switch (evt.key) {
 		case "ArrowDown":
 			selectItem(walker.nextNode());
@@ -261,15 +272,15 @@ tree.addEventListener("keydown", evt => {
 			selectItem(walker.previousNode());
 			break;
 		case "ArrowRight":
-			if (document.activeElement.ariaExpanded == "true") {
+			if (walker.currentNode.ariaExpanded == "true") {
 				selectItem(walker.nextNode());
-			} else if (document.activeElement.ariaExpanded == "false") {
-				document.activeElement.ariaExpanded = "true";
+			} else if (walker.currentNode.ariaExpanded == "false") {
+				walker.currentNode.ariaExpanded = "true";
 			}
 			break;
 		case "ArrowLeft":
-			if (document.activeElement.ariaExpanded == "true") {
-				document.activeElement.ariaExpanded = "false";
+			if (walker.currentNode.ariaExpanded == "true") {
+				walker.currentNode.ariaExpanded = "false";
 			} else {
 				selectItem(walker.parentNode());
 			}
@@ -285,14 +296,10 @@ tree.addEventListener("keydown", evt => {
 	}
 });
 
-function focusTree() {
-	getSelectedItem().focus();
-}
-
 threadSel.addEventListener("change", evt => updateTree());
 invert.addEventListener("click", evt => {
 	updateTree(true);
-	focusTree();
+	tree.focus();
 });
 
 // Recursively hides branches in the tree if they don't contain the filter text.
@@ -327,10 +334,12 @@ filter.addEventListener("change", evt => {
 			filterSubtree(item, filterText);
 		}
 	}
-	if (prevSel.classList.contains("excluded") || prevSel.closest(".excluded")) {
-		// The previously selected item is now hidden. Select the first item.
-		prevSel.tabIndex = -1;
-		document.querySelector("#tree > [role=treeitem]:not(.excluded)").tabIndex = 0;
+	if (!prevSel || prevSel.classList.contains("excluded") ||
+		prevSel.closest(".excluded")
+	) {
+		// The previously selected item is now hidden or the tree was empty. Select
+		// the first item.
+		selectItem(document.querySelector("#tree > [role=treeitem]:not(.excluded)"));
 	}
 });
 </script>
